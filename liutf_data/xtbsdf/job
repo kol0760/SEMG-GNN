@@ -1,0 +1,30 @@
+#!/bin/bash -l
+#
+#SBATCH --job-name="Gau"
+#SBATCH --time=7200:00:00
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=61440
+
+# >>> conda initialize >>>
+# !! Contents within this block are managed by 'conda init' !!
+__conda_setup="$('/home/zengy/app/mamba/bin/conda' 'shell.bash' 'hook' 2> /dev/null)"
+if [ $? -eq 0 ]; then
+    eval "$__conda_setup"
+else
+    if [ -f "/home/zengy/app/mamba/etc/profile.d/conda.sh" ]; then
+        . "/home/zengy/app/mamba/etc/profile.d/conda.sh"
+    else
+        export PATH="/home/zengy/app/mamba/bin:$PATH"
+    fi
+fi
+unset __conda_setup
+
+if [ -f "/home/zengy/app/mamba/etc/profile.d/mamba.sh" ]; then
+    . "/home/zengy/app/mamba/etc/profile.d/mamba.sh"
+fi
+# <<< conda initialize <<<
+
+
+/home/zengy/app/mamba/condabin/mamba activate /home/zengy/app/mamba/envs/SEMG_MIGNN
+/home/zengy/app/mamba/envs/SEMG_MIGNN/bin/python b3lyp_def2svp.py 1_std.xyz
