@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from copy import deepcopy
 #import dgl
-import tensorflow as tf
 
 precision = 8
 #sphere_radius unit:A
@@ -17,7 +16,7 @@ class SPMS():
         self.sdf_file = sdf_file
         self.sphere_radius = sphere_radius
         if key_atom_num != None:
-            key_atom_num = list(np.array(key_atom_num,dtype=np.int)-1)
+            key_atom_num = list(np.array(key_atom_num,dtype=np.int64)-1)
             self.key_atom_num = key_atom_num
         else:
             self.key_atom_num = []
@@ -371,218 +370,41 @@ class SPMS():
         self.PHI = PHI
         self.THETA = THETA
         self.sphere_descriptors = sphere_descriptors_final
-        
-    def GetLocalSphereDescriptors(self):
-        
-        if len(self.key_atom_num) != 1:
-            raise ValueError('the number of key atom should be 1')        
-        #self._Standarlize_Geomertry()
-        #new_positions = self.new_positions 
-        sphere_radius = self.sphere_radius
-        distances = np.sqrt(np.sum(self.positions**2,axis=1))
-        self.distances = distances
-        local_positions = self.positions[self.distances + self.radius<=self.sphere_radius]
-        local_radius = self.radius[self.distances + self.radius<=self.sphere_radius]
-        local_distances = self.distances[self.distances + self.radius<=self.sphere_radius]      
-        self.local_positions = local_positions
-        self.local_radius = local_radius
-        self.local_distances = local_distances
-        self.local_key_atom = [np.argmin(local_distances)]        
-        if len(local_positions) < 2:
-            raise ValueError('the sphere radius is too small')
-        N = self.desc_n
-        M = self.desc_m
-        delta_theta = 1/N * np.pi
-        delta_fi = 1/M * np.pi
-        theta_screenning = np.array([item*delta_theta for item in range(1,N+1)])
-        self.theta_screenning = theta_screenning
-        fi_screenning = np.array([item*delta_fi for item in range(1,M*2+1)])
-        self.fi_screenning = fi_screenning
-        PHI, THETA = np.meshgrid(fi_screenning, theta_screenning)        
-        x = sphere_radius*np.sin(THETA)*np.cos(PHI)
-        y = sphere_radius*np.sin(THETA)*np.sin(PHI)
-        z = sphere_radius*np.cos(THETA)
-        mesh_xyz = np.array([[x[i][j],y[i][j],z[i][j]] for i in range(theta_screenning.shape[0]) for j in range(fi_screenning.shape[0])])
-        self.mesh_xyz = mesh_xyz
-        psi = np.linalg.norm(local_positions,axis=1)
-        atom_vec = deepcopy(local_positions)
-        self.psi = psi
-        all_cross = []
-        for j in range(atom_vec.shape[0]):
-            all_cross.append(np.cross(atom_vec[j].reshape(-1,3),mesh_xyz,axis=1)) 
-        all_cross = np.array(all_cross)
-        all_cross = all_cross.transpose(1,0,2)
-        self.all_cross = all_cross
-        mesh_xyz_h = np.linalg.norm(all_cross,axis=2)/sphere_radius
-        
-        dot = np.dot(mesh_xyz,atom_vec.T)
-        atom_vec_norm = np.linalg.norm(atom_vec,axis=1).reshape(-1,1)
-        mesh_xyz_norm = np.linalg.norm(mesh_xyz,axis=1).reshape(-1,1)
-        self.mesh_xyz_norm = mesh_xyz_norm
-        self.atom_vec_norm = atom_vec_norm    
-        orthogonal_mesh = dot/np.dot(mesh_xyz_norm,atom_vec_norm.T)        
-        self.mesh_xyz_h = mesh_xyz_h        
-        self.orthogonal_mesh = orthogonal_mesh        
-        cross_det = mesh_xyz_h <= local_radius
-        orthogonal_det = np.arccos(orthogonal_mesh) <= np.pi*0.5
-        double_correct = np.array([orthogonal_det,cross_det]).all(axis=0)
-        double_correct_index = np.array(np.where(double_correct==True)).T
-        self.double_correct_index = double_correct_index
-        d_1 = np.zeros(mesh_xyz_h.shape)
-        d_2 = np.zeros(mesh_xyz_h.shape)
-        for item in double_correct_index:            
-            d_1[item[0]][item[1]] = max( (psi[item[1]]**2 - mesh_xyz_h[item[0]][item[1]]**2) ,0)**0.5
-            d_2[item[0]][item[1]]=(local_radius[item[1]]**2 - mesh_xyz_h[item[0]][item[1]]**2)**0.5
-        self.d_1 = d_1
-        self.d_2 = d_2        
-        sphere_descriptors = sphere_radius - d_1 - d_2
-        sphere_descriptors_compact = sphere_descriptors.min(1)
-        sphere_descriptors_reshaped = sphere_descriptors_compact.reshape(PHI.shape)
-        sphere_descriptors_reshaped = sphere_descriptors_reshaped.round(precision)        
-        if len(self.local_key_atom) == 1:
-            sphere_descriptors_init = np.zeros((theta_screenning.shape[0],fi_screenning.shape[0])) + sphere_radius - local_radius[self.local_key_atom[0]]
-            sphere_descriptors_final = np.min(np.concatenate([sphere_descriptors_reshaped.reshape(theta_screenning.shape[0],fi_screenning.shape[0],1),sphere_descriptors_init.reshape(theta_screenning.shape[0],fi_screenning.shape[0],1)],axis=2),axis=2)
-        else:
-            sphere_descriptors_final = sphere_descriptors_reshaped       
-        self.PHI = PHI
-        self.THETA = THETA
-        self.local_sphere_descriptors = sphere_descriptors_final
-
-#rdkit_period_table = Chem.GetPeriodicTable()
 
 
-from rdkit import Chem
-from rdkit.Chem import AllChem
-from pyscf import gto,scf
+
+
+
+
 import numpy as np
-from pyscf.dft import numint
+from rdkit import Chem
 
-class CalcEDLocal():
-    def __init__(self,mol,grid_num=7,basis='6-311g',GTOval='GTOval',unit_convert = 0.529177, # 1 Bohr = 0.529117 A
-                 skip_cusp=True,coord_ang=True,charge_judge=False):#smi
-        self.mol = mol
-        #self.smi = smi
-        self.grid_num = grid_num
-        self.basis = basis
-        self.GTOval = GTOval
-        self.unit_convert=unit_convert
-        self.skip_cusp = skip_cusp
-        self.coord_ang = coord_ang
-        self.charge_judge = charge_judge
-    def __call__(self):
-        #smi=self.smi
-        grid_num = self.grid_num
-        symbols = [tmp_atom.GetSymbol() for tmp_atom in self.mol.GetAtoms()]
-        positions = self.mol.GetConformer().GetPositions()
-        mol_string = ''
-        for i in range(len(positions)):
-            mol_string += '%5s %15f %15f %15f;'%(symbols[i],positions[i][0],positions[i][1],positions[i][2])
-        if self.charge_judge:
-            '''if 'Ir'or'Rh' in smi:
-                charge=1
-            else:'''
-            AllChem.ComputeGasteigerCharges(self.mol)
-            atoms = self.mol.GetAtoms()
-            charge = np.array([atom.GetDoubleProp('_GasteigerCharge') for atom in atoms]).sum()
-            py_mol = gto.M(atom=mol_string,charge=int(round(charge)),basis=self.basis)
-        else:
-            
-            py_mol = gto.M(atom=mol_string,basis=self.basis)
-        mf = scf.HF(py_mol)
-        dm = mf.get_init_guess()
-        rdkit_period_table = Chem.GetPeriodicTable()
-        radius = np.array([rdkit_period_table.GetRvdw(item) for item in symbols])
-        all_grid_coords = []
-        all_density = []
-        for at_id in range(len(radius)):
-            d = radius[at_id]*2
-            if grid_num % 2 == 1:
-                n_range = list(range(round(-(grid_num-1)/2),round((grid_num+1)/2)))
-                grid_a = [n*d/grid_num for n in n_range]
-                cubic_array = np.array([[x,y,z] for x in grid_a for y in grid_a for z in grid_a])
-            else:
-                n_range = list(range(-round(grid_num/2),round(grid_num/2)))
-                grid_a = [d/2/grid_num + n*d/grid_num for n in n_range]
-                cubic_array = np.array([[x,y,z] for x in grid_a for y in grid_a for z in grid_a])   ## 电荷分布网格中心计算
-            grid_point_coord = (cubic_array+positions[at_id]) / self.unit_convert ## coord unit Bohr
-            all_grid_coords.append(grid_point_coord)
-            ao = py_mol.eval_ao(self.GTOval, grid_point_coord)
-            ed = numint.eval_rho(py_mol,ao,dm)   # 'Electron density in real space (e/Bohr^3)'
-            if grid_num % 2 == 1 and self.skip_cusp:
-                ed[grid_num*grid_num*grid_num//2] = 0
-            all_density.append(ed)
-        all_grid_coords = np.array(all_grid_coords)
-        all_density = np.array(all_density)
-        grid_coords = all_grid_coords.reshape(len(radius),grid_num,grid_num,grid_num,3)
-        if self.coord_ang:
-            grid_coords = grid_coords * self.unit_convert
-            all_grid_coords = all_grid_coords * self.unit_convert
-        grid_ed = all_density.reshape(len(radius),grid_num,grid_num,grid_num)
-        self.all_density = all_density
-        self.all_grid_coords = all_grid_coords
-        return grid_ed,grid_coords
- 
+
+
 class Calc_SPMS():
-    def __init__(self,file_list,mol_dir,spms_acc = 10,sphere_radius = 4):#smi
+    def __init__(self, spms_acc=20, sphere_radius=5):
         self.spms_acc = spms_acc
-        self.mol_dir=mol_dir
         self.sphere_radius = sphere_radius
-        self.file_list = file_list
-    def MolSPMS(self,mol,spms_acc):
+
+    def mol_spms(self, mol):
         atom_nums = len(mol.GetAtoms())
         mol_spms = []
         for i in range(atom_nums):
-            spms = SPMS(rdkit_mol=mol,key_atom_num=[i+1],desc_n=self.spms_acc,desc_m=self.spms_acc,sphere_radius=self.sphere_radius)
-            spms.GetLocalSphereDescriptors()
-            mol_spms.append(spms.local_sphere_descriptors)
-        mol_spms = np.array(mol_spms)
-        return mol_spms
-    def PackCub(self,arr_list):
-        N = len(arr_list)
-        M = max([arr_list[i].shape[0] for i in range(len(arr_list))])
-        pack_cub = np.zeros([N,M,arr_list[0].shape[1],arr_list[0].shape[2],arr_list[0].shape[3]])
-        for i in range(N):
-            pack_cub[i,:len(arr_list[i]),:,:,:] = arr_list[i]
-        return pack_cub
-    def PackMat(self,arr_list):
-        N = len(arr_list)
-        M = max([arr_list[i].shape[0] for i in range(len(arr_list))])
-        pack_mat = np.zeros([N,M,arr_list[0].shape[1],arr_list[0].shape[2]])
-        for i in range(N):
-            pack_mat[i,:len(arr_list[i]),:,:] = arr_list[i]
-        return pack_mat
-    
-    def calc_spms(self,file_list,mol_dir):
-        all_spms = []
-        index_name_dict = {}
-        for index,tmp_file in enumerate(self.file_list):
-            #print(tmp_file)
-            tmp_fn = tmp_file.split('/')[-1].split('.')[0]
-            index_name_dict[tmp_fn] = index                
-            if tmp_file.split('/')[-1].split('.')[-1]=='xyz':
-                tmp_mol = Chem.MolFromXYZFile(tmp_file)
-            else:
-                tmp_mol = Chem.MolFromMolFile(tmp_file,removeHs=False)                                              
-            #atom_nums = len(tmp_mol.GetAtoms())
-            mol_spms = self.MolSPMS(tmp_mol,self.spms_acc)
-            all_spms.append(mol_spms)            
-        all_spms = self.PackMat(all_spms)
-        return all_spms,index_name_dict       
+            spms = SPMS(rdkit_mol=mol, key_atom_num=[i + 1], desc_n=self.spms_acc, desc_m=self.spms_acc,
+                        sphere_radius=self.sphere_radius)
+            spms.GetSphereDescriptors()
+            mol_spms.append(spms.sphere_descriptors)
+        return np.array(mol_spms)
 
-def Scaler(arr,arr_train,method='minmax'):
-    if method == 'minmax':
-        return (arr - arr_train.min(axis=0))/(arr_train.max(axis=0)-arr_train.min(axis=0))
-    elif method == 'z-score':
-        return (arr - arr_train.mean(axis=0))/arr_train.var(axis=0)
-    elif method == 'log_minmax':
-        arr = np.log(arr)
-        arr_train= np.log(arr_train)
-        return (arr - arr_train.min(axis=0))/(arr_train.max(axis=0)-arr_train.min(axis=0))
-    
-def PackCub(arr_list):
-    N = len(arr_list)
-    M = max([arr_list[i].shape[0] for i in range(len(arr_list))])
-    pack_cub = np.zeros([N,M,arr_list[0].shape[1],arr_list[0].shape[2],arr_list[0].shape[3]])
-    for i in range(N):
-        pack_cub[i,:len(arr_list[i]),:,:,:] = arr_list[i]
-    return pack_cub
+    def calc_spms(self, tmp_file):
+        file_extension = tmp_file.split('/')[-1].split('.')[-1]
+        if file_extension == 'xyz':
+            tmp_mol = Chem.MolFromXYZFile(tmp_file)
+        else:
+            tmp_mol = Chem.MolFromMolFile(tmp_file, removeHs=False)
+
+        if tmp_mol is None:
+            raise ValueError(f"Unable to create molecule from file: {tmp_file}")
+
+        return self.mol_spms(tmp_mol)
+
